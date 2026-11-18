@@ -1,0 +1,622 @@
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Los Angeles Open World V2</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#111;font-family:Arial;color:white}
+canvas{display:block}
+#hud{position:absolute;top:14px;left:14px;background:#10151ddd;
+padding:14px 17px;border:1px solid #ffffff30;border-radius:12px;
+line-height:1.7;z-index:2;min-width:190px}
+#hud b{color:#ffd34e;font-size:19px}
+#help{position:absolute;bottom:15px;left:14px;background:#10151ddd;
+padding:12px;border-radius:10px;font-size:12px;line-height:1.7}
+#mission{position:absolute;top:14px;right:14px;background:#10151ddd;
+padding:13px;border-radius:10px;text-align:center;min-width:145px}
+#message{position:absolute;top:45%;left:50%;transform:translate(-50%,-50%);
+background:#10151dee;padding:16px 24px;border-radius:12px;
+font-weight:bold;display:none;text-align:center}
+#mobile{position:absolute;bottom:15px;right:15px;display:none;gap:7px}
+#mobile button{width:55px;height:55px;background:#ffffff30;color:white;
+border:1px solid #ffffff80;border-radius:12px;font-size:22px}
+@media(max-width:700px){#mobile{display:flex;flex-wrap:wrap;width:180px}}
+</style>
+</head>
+<body>
+
+<div id="hud">
+<b>LOS ANGELES</b><br>
+<small>OPEN WORLD V2</small><br>
+Snelheid: <span id="speed">0</span> km/u<br>
+Politie: <span id="wanted">☆☆☆☆☆</span><br>
+Tijd: <span id="clock">12:00</span>
+</div>
+
+<div id="mission">
+<b>MISSIES</b><br>
+Verzameld: <span id="score">0</span>/10<br>
+<small>Zoek de gouden ringen!</small>
+</div>
+
+<div id="help">
+↑ Vooruit | ↓ Achteruit<br>
+← Links | → Rechts<br>
+SPATIE Remmen<br>
+N Dag/nacht wisselen<br>
+P Politie activeren
+</div>
+
+<div id="message"></div>
+
+<div id="mobile">
+<button data-key="ArrowUp">↑</button>
+<button data-key="ArrowLeft">←</button>
+<button data-key="ArrowDown">↓</button>
+<button data-key="ArrowRight">→</button>
+<button data-key=" ">■</button>
+</div>
+
+<script type="module">
+import * as THREE from
+'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+// ============================
+// BASIS
+// ============================
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x83b8df);
+scene.fog = new THREE.Fog(0x83b8df,120,650);
+
+const camera = new THREE.PerspectiveCamera(
+  70,innerWidth/innerHeight,0.1,1200
+);
+
+const renderer = new THREE.WebGLRenderer({antialias:false});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.3));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const hemi = new THREE.HemisphereLight(0xffffff,0x647080,1.8);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xffe4bd,2.1);
+sun.position.set(-70,100,50);
+scene.add(sun);
+
+const mat=(color,roughness=0.8,metalness=0)=>new THREE.MeshStandardMaterial({
+ color,roughness,metalness
+});
+
+const groundMat=mat(0x536b4d);
+const roadMat=mat(0x292d33);
+const sidewalkMat=mat(0x929292);
+const yellowMat=mat(0xffc928,0.4);
+const whiteMat=mat(0xffffff);
+const blackMat=mat(0x151515);
+const glassMat=mat(0x183748,0.2,0.3);
+
+// ============================
+// WERELD EN WEGEN
+// ============================
+
+function box(parent,w,h,d,material,x,y,z){
+ const m=new THREE.Mesh(
+  new THREE.BoxGeometry(w,h,d),material
+ );
+ m.position.set(x,y,z);
+ parent.add(m);
+ return m;
+}
+
+const ground=new THREE.Mesh(
+ new THREE.PlaneGeometry(1400,1400),groundMat
+);
+ground.rotation.x=-Math.PI/2;
+ground.position.y=-0.15;
+scene.add(ground);
+
+// Hoofdweg
+box(scene,22,0.12,1200,roadMat,0,-0.04,0);
+
+// Zijwegen
+for(let z=-500;z<=500;z+=100){
+ box(scene,120,0.12,14,roadMat,0,-0.035,z);
+}
+
+// Trottoirs
+for(const x of [-13,13]){
+ box(scene,4,0.3,1200,sidewalkMat,x,0,0);
+}
+
+// Wegmarkeringen
+for(let z=-590;z<600;z+=12){
+ box(scene,0.2,0.035,5,whiteMat,0,0.04,z);
+}
+
+// Zijwegmarkeringen
+for(let z=-500;z<=500;z+=100){
+ for(let x=-48;x<=48;x+=10){
+  box(scene,0.2,0.035,5,whiteMat,x,0.04,z);
+ }
+}
+
+// ============================
+// STAD EN GEBOUWEN
+// ============================
+
+const buildingMaterials=[
+ mat(0xaaa99e),mat(0xc1b29d),mat(0x777e88),
+ mat(0x9eafb5),mat(0x827c72),mat(0xd0c6b2),
+ mat(0x596b79),mat(0xa4a6a0)
+];
+
+const windowMaterial=mat(0x6b9db1,0.3,0.2);
+
+for(let side of [-1,1]){
+ for(let i=0;i<45;i++){
+  const z=-480+i*23;
+  const x=side*(28+Math.random()*30);
+  const w=9+Math.random()*10;
+  const d=12+Math.random()*12;
+  const h=12+Math.random()*65;
+
+  const building=new THREE.Group();
+  building.position.set(x,0,z);
+  scene.add(building);
+
+  box(building,w,h,d,
+   buildingMaterials[Math.floor(Math.random()*buildingMaterials.length)],
+   0,h/2,0);
+
+  // Rijen ramen
+  for(let floor=1;floor<h/4;floor++){
+   for(let col=0;col<3;col++){
+    const win=box(building,1.3,1.5,0.12,
+      windowMaterial,(col-1)*w/3,floor*3.5,d/2+0.08);
+   }
+  }
+
+  // Dakrand
+  box(building,w+0.4,0.5,d+0.4,mat(0x55575b),0,h+0.25,0);
+ }
+}
+
+// Bomen langs de stoepen
+const trunkMat=mat(0x61442d);
+const leafMat=mat(0x315d38);
+
+for(let z=-480;z<500;z+=22){
+ for(let x of [-15,15]){
+  box(scene,0.6,3,0.6,trunkMat,x,1.5,z);
+  const leaves=new THREE.Mesh(
+   new THREE.SphereGeometry(2.2,7,6),leafMat
+  );
+  leaves.position.set(x,4,z);
+  scene.add(leaves);
+ }
+}
+
+// ============================
+// AUTO BOUWER
+// ============================
+
+function makeCar(color=0xc00020,police=false){
+ const group=new THREE.Group();
+
+ const paint=mat(color,0.28,0.55);
+ const tireMat=mat(0x101010);
+ const rimMat=mat(0x999999,0.25,0.7);
+
+ box(group,2.15,0.75,4.4,paint,0,0.9,0);
+ box(group,1.75,0.8,2.2,glassMat,0,1.55,0.05);
+
+ // Voorruitaccent
+ box(group,1.7,0.08,0.1,paint,0,1.95,-0.85);
+
+ for(const x of [-1.12,1.12]){
+  for(const z of [-1.4,1.4]){
+   const wheel=new THREE.Mesh(
+    new THREE.CylinderGeometry(0.45,0.45,0.32,16),
+    tireMat
+   );
+   wheel.rotation.z=Math.PI/2;
+   wheel.position.set(x,0.5,z);
+   group.add(wheel);
+
+   const rim=new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22,0.22,0.34,12),
+    rimMat
+   );
+   rim.rotation.z=Math.PI/2;
+   rim.position.copy(wheel.position);
+   group.add(rim);
+  }
+ }
+
+ for(const x of [-0.72,0.72]){
+  box(group,0.48,0.18,0.1,mat(0xffffcc,0.2),x,1,-2.22);
+  box(group,0.48,0.18,0.1,mat(0xff1111),x,1,2.22);
+ }
+
+ if(police){
+  box(group,0.9,0.18,0.4,mat(0x202020),0,2.05,0);
+  const red=box(group,0.35,0.25,0.25,mat(0xff0000),-0.23,2.2,0);
+  const blue=box(group,0.35,0.25,0.25,mat(0x004cff),0.23,2.2,0);
+  group.userData.lights=[red,blue];
+ }
+
+ return group;
+}
+
+// Spelersauto
+const player=makeCar(0xb5001b);
+player.position.set(0,0,0);
+scene.add(player);
+
+// ============================
+// VERKEER
+// ============================
+
+const traffic=[];
+const trafficColors=[0xeeeeee,0x151515,0x163b85,0x777777,0xb4a28c,0x23834a];
+
+for(let i=0;i<18;i++){
+ const direction=i%2===0?1:-1;
+ const car=makeCar(trafficColors[i%trafficColors.length]);
+ const lane=direction===1?-4:4;
+
+ car.position.set(lane,0,-450+Math.random()*900);
+ if(direction===-1)car.rotation.y=Math.PI;
+ scene.add(car);
+
+ traffic.push({
+  mesh:car,
+  speed:0.12+Math.random()*0.15,
+  direction
+ });
+}
+
+// ============================
+// VOETGANGERS
+// ============================
+
+const pedestrians=[];
+const skinColors=[0xd6a47b,0x9c6847,0xf0c49b];
+
+for(let i=0;i<30;i++){
+ const person=new THREE.Group();
+ const shirt=mat([0x315b9b,0x9d3434,0x4a7950,0xdddddd][i%4]);
+ const skin=mat(skinColors[i%3]);
+
+ const body=new THREE.Mesh(
+  new THREE.CylinderGeometry(0.3,0.4,1.25,8),shirt
+ );
+ body.position.y=1.15;
+ person.add(body);
+
+ const head=new THREE.Mesh(
+  new THREE.SphereGeometry(0.27,8,8),skin
+ );
+ head.position.y=1.95;
+ person.add(head);
+
+ for(const x of [-0.16,0.16]){
+  box(person,0.18,0.8,0.18,blackMat,x,0.4,0);
+ }
+
+ person.position.set(
+  Math.random()>0.5?15:-15,0,-450+Math.random()*900
+ );
+ scene.add(person);
+
+ pedestrians.push({
+  mesh:person,
+  direction:Math.random()>0.5?1:-1,
+  speed:0.025+Math.random()*0.025
+ });
+}
+
+// ============================
+// VERKEERSLICHTEN
+// ============================
+
+const trafficLights=[];
+
+for(let z=-500;z<=500;z+=100){
+ for(const x of [-14,14]){
+  box(scene,0.25,7,0.25,blackMat,x,3.5,z);
+  const light=new THREE.Group();
+  light.position.set(x,6.5,z);
+  scene.add(light);
+
+  for(let j=0;j<3;j++){
+   const lamp=new THREE.Mesh(
+    new THREE.SphereGeometry(0.22,8,8),
+    mat([0xff2222,0xffbb00,0x00cc55][j])
+   );
+   lamp.position.y=-j*0.55;
+   light.add(lamp);
+  }
+  trafficLights.push(light);
+ }
+}
+
+// ============================
+// MISSIEPUNTEN
+// ============================
+
+const missionPoints=[];
+const ringMat=new THREE.MeshStandardMaterial({
+ color:0xffc600,emissive:0x996600,
+ metalness:0.5,roughness:0.25
+});
+
+for(let i=0;i<10;i++){
+ const ring=new THREE.Mesh(
+  new THREE.TorusGeometry(2,0.22,8,24),ringMat
+ );
+ ring.position.set(
+  i%2===0?-7:7,1.8,-80-i*42
+ );
+ scene.add(ring);
+ missionPoints.push(ring);
+}
+
+// ============================
+// POLITIE
+// ============================
+
+let police=null;
+let wanted=0;
+let policeSpeed=0.25;
+let policeActive=false;
+let policeCooldown=0;
+
+function startPolice(){
+ if(policeActive)return;
+ police=makeCar(0xffffff,true);
+ police.position.set(player.position.x+12,0,player.position.z+35);
+ scene.add(police);
+ policeActive=true;
+ wanted=1;
+ showMessage("POLITIE ACHTER JE AAN!");
+}
+
+function stopPolice(){
+ if(police){
+  scene.remove(police);
+  police=null;
+ }
+ policeActive=false;
+ wanted=0;
+}
+
+// ============================
+// BESTURING
+// ============================
+
+const keys={};
+
+window.addEventListener('keydown',e=>{
+ if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)){
+  e.preventDefault();
+ }
+ keys[e.key]=true;
+
+ if(e.key.toLowerCase()==='n')toggleNight();
+ if(e.key.toLowerCase()==='p')startPolice();
+});
+
+window.addEventListener('keyup',e=>keys[e.key]=false);
+
+document.querySelectorAll('#mobile button').forEach(button=>{
+ const key=button.dataset.key;
+ button.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  keys[key]=true;
+ });
+ button.addEventListener('pointerup',()=>keys[key]=false);
+ button.addEventListener('pointerleave',()=>keys[key]=false);
+ button.addEventListener('pointercancel',()=>keys[key]=false);
+});
+
+// ============================
+// DAG EN NACHT
+// ============================
+
+let night=false;
+
+function toggleNight(){
+ night=!night;
+ scene.background.set(night?0x071326:0x83b8df);
+ scene.fog.color.set(night?0x071326:0x83b8df);
+ hemi.intensity=night?0.35:1.8;
+ sun.intensity=night?0.15:2.1;
+ sun.color.set(night?0x7899ff:0xffe4bd);
+ showMessage(night?"NACHTMODUS":"DAGMODUS");
+}
+
+// ============================
+// HUD EN SPEL
+// ============================
+
+let velocity=0;
+let steering=0;
+let score=0;
+let gameTime=12;
+let messageTimer=0;
+
+function showMessage(text){
+ const el=document.getElementById('message');
+ el.textContent=text;
+ el.style.display='block';
+ messageTimer=150;
+}
+
+function updateHUD(){
+ document.getElementById('speed').textContent=
+ Math.round(Math.abs(velocity)*120);
+
+ document.getElementById('wanted').textContent=
+ '★'.repeat(wanted)+'☆'.repeat(5-wanted);
+
+ document.getElementById('score').textContent=score;
+ document.getElementById('clock').textContent=
+ String(Math.floor(gameTime)).padStart(2,'0')+':'+
+ String(Math.floor((gameTime%1)*60)).padStart(2,'0');
+}
+
+// ============================
+// CAMERA
+// ============================
+
+camera.position.set(0,7,13);
+
+const clock=new THREE.Clock();
+
+function animate(){
+ requestAnimationFrame(animate);
+
+ const delta=Math.min(clock.getDelta(),0.04);
+
+ // Speler versnellen en remmen
+ if(keys.ArrowUp)velocity+=0.012;
+ if(keys.ArrowDown)velocity-=0.012;
+ if(keys[' '])velocity*=0.88;
+
+ velocity*=0.993;
+ velocity=THREE.MathUtils.clamp(velocity,-0.45,1.05);
+
+ // Sturen
+ if(keys.ArrowLeft)steering=1;
+ else if(keys.ArrowRight)steering=-1;
+ else steering*=0.85;
+
+ if(Math.abs(velocity)>0.005){
+  player.rotation.y+=steering*Math.abs(velocity)*0.035*
+   (velocity<0?-1:1);
+ }
+
+ // Bewegen
+ player.position.x-=Math.sin(player.rotation.y)*velocity;
+ player.position.z-=Math.cos(player.rotation.y)*velocity;
+
+ // Begrens de wereld
+ player.position.x=THREE.MathUtils.clamp(player.position.x,-9,9);
+
+ // Wielen
+ player.children.forEach(child=>{
+  if(child.geometry?.type==='CylinderGeometry'){
+   child.rotation.x+=velocity*0.4;
+  }
+ });
+
+ // Verkeer
+ for(const t of traffic){
+  t.mesh.position.z+=t.speed*t.direction;
+  if(t.mesh.position.z>520)t.mesh.position.z=-520;
+  if(t.mesh.position.z< -520)t.mesh.position.z=520;
+
+  const distance=t.mesh.position.distanceTo(player.position);
+  if(distance<3.2 && Math.abs(distance)>0){
+   velocity*=0.96;
+  }
+ }
+
+ // Voetgangers
+ for(const p of pedestrians){
+  p.mesh.position.z+=p.speed*p.direction;
+  if(p.mesh.position.z>510)p.mesh.position.z=-510;
+  if(p.mesh.position.z< -510)p.mesh.position.z=510;
+ }
+
+ // Politie achtervolging
+ if(policeActive&&police){
+  const target=player.position.clone();
+  target.y=0;
+  const diff=target.clone().sub(police.position);
+  const distance=diff.length();
+
+  if(distance>3){
+   const desired=Math.atan2(-diff.x,-diff.z);
+   let angle=desired-police.rotation.y;
+   angle=Math.atan2(Math.sin(angle),Math.cos(angle));
+   police.rotation.y+=angle*0.035;
+   police.position.x-=Math.sin(police.rotation.y)*policeSpeed;
+   police.position.z-=Math.cos(police.rotation.y)*policeSpeed;
+  }
+
+  police.userData.lights.forEach((light,i)=>{
+   light.material.color.set(
+    Math.sin(performance.now()*0.012+i*Math.PI)>0?
+    (i===0?0xff0000:0x004cff):0x222222
+   );
+  });
+
+  if(distance<5){
+   velocity*=0.97;
+  }
+
+  policeCooldown++;
+  if(policeCooldown>1800){
+   stopPolice();
+   policeCooldown=0;
+  }
+ }
+
+ // Missies verzamelen
+ for(let i=missionPoints.length-1;i>=0;i--){
+  const ring=missionPoints[i];
+  ring.rotation.y+=0.025;
+  if(ring.position.distanceTo(player.position)<4){
+   scene.remove(ring);
+   missionPoints.splice(i,1);
+   score++;
+   showMessage("MISSIEPUNT VERZAMELD!");
+   if(score===10)showMessage("ALLE MISSIES VOLTOOID!");
+  }
+ }
+
+ // Tijd
+ gameTime+=delta*0.015;
+ if(gameTime>=24)gameTime=0;
+
+ // Camera achter de auto
+ const offset=new THREE.Vector3(0,6,12);
+ offset.applyAxisAngle(new THREE.Vector3(0,1,0),player.rotation.y);
+ const cameraTarget=player.position.clone().add(offset);
+ camera.position.lerp(cameraTarget,0.08);
+
+ const look=player.position.clone();
+ look.y+=1;
+ look.z-=4*Math.cos(player.rotation.y);
+ look.x-=4*Math.sin(player.rotation.y);
+ camera.lookAt(look);
+
+ if(messageTimer>0){
+  messageTimer--;
+  if(messageTimer===0)
+   document.getElementById('message').style.display='none';
+ }
+
+ updateHUD();
+ renderer.render(scene,camera);
+}
+
+animate();
+
+// Scherm aanpassen
+window.addEventListener('resize',()=>{
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
